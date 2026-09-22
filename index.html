@@ -26,7 +26,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div class="wrap">
 
 <div class="card">
-<h1>하루기록 AI <span class="badge">무료 버전 · v6</span></h1>
+<h1>하루기록 AI <span class="badge">무료 버전 · v7</span></h1>
 <div class="muted">말하듯 이야기하면 오늘의 일지를 정리합니다. 음성 인식은 브라우저 내장 기능, 정리는 Google Gemini 무료 API를 사용합니다.</div>
 <div><span class="status" id="today"></span><span class="status" id="saved"></span></div>
 </div>
@@ -90,7 +90,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 "use strict";
 var KEY="daily_ai_v2_free";
 var KEYNAME="gemini_api_key";
-var GEMINI_MODEL="gemini-2.5-flash";
+var GEMINI_MODEL="gemini-3.6-flash";
 var today=new Date();
 var date=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0")+"-"+String(today.getDate()).padStart(2,"0");
 var store={};

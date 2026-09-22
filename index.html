@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>하루기록 AI · 무료 버전</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#202124;font-family:Arial,"Noto Sans KR",sans-serif}
+.wrap{max-width:900px;margin:auto;padding:22px}.card{background:#fff;border:1px solid #ddd;border-radius:16px;padding:20px;margin-bottom:16px}
+h1{margin:0 0 6px}h2{margin-top:0}.muted{color:#6b7280}.chat{height:360px;overflow:auto;background:#fafafa;border:1px solid #ddd;border-radius:12px;padding:12px}
+.msg{padding:10px 12px;border-radius:12px;margin:8px 0;white-space:pre-wrap;max-width:85%;line-height:1.5}.ai{background:#eee}.me{background:#e5edf9;margin-left:auto}
+textarea{width:100%;height:120px;padding:12px;border:1px solid #ccc;border-radius:10px;font-size:16px}
+input[type=password],input[type=text]{width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;font-size:15px}
+button{border:0;border-radius:10px;padding:12px 16px;margin:8px 6px 0 0;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}
+.primary{background:#111827;color:white}.secondary{background:#e9edf2;color:#222}.danger{background:#fee4e2;color:#b42318}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field{border:1px solid #e2e2e2;border-radius:10px;padding:12px;background:#fafafa}.field b{display:block;margin-bottom:7px}.field div{white-space:pre-wrap;line-height:1.5}
+@media(max-width:650px){.grid{grid-template-columns:1fr}}
+.status{display:inline-block;background:#eef2f7;padding:7px 10px;border-radius:8px;font-size:13px;margin:4px 4px 0 0}
+.error{color:#b42318;background:#fef3f2;border:1px solid #fecdca;padding:10px;border-radius:10px;margin-top:10px;display:none;white-space:pre-wrap}
+.badge{display:inline-block;font-size:11px;font-weight:bold;background:#eaf6ec;color:#1a7f37;padding:3px 8px;border-radius:999px;margin-left:6px}
+.hint{font-size:13px;color:#667085;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="card">
+<h1>하루기록 AI <span class="badge">무료 버전</span></h1>
+<div class="muted">말하듯 이야기하면 오늘의 일지를 정리합니다. 음성 인식은 브라우저 내장 기능, 정리는 Google Gemini 무료 API를 사용합니다.</div>
+<div><span class="status" id="today"></span><span class="status" id="saved"></span></div>
+</div>
+
+<div class="card" id="setupCard">
+<h2>⚙ Gemini API 키 설정</h2>
+<div class="hint">
+1. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료로 키를 발급받으세요 (신용카드 필요 없음)<br>
+2. 아래에 붙여넣고 저장하면 이 브라우저에만 저장됩니다 (서버로 전송되지 않음)<br>
+3. 키는 매 요청마다 Google 서버로 직접 전송됩니다 — 공용 PC에서는 사용 후 "키 삭제"를 눌러주세요
+</div>
+<div style="margin-top:10px"><input type="password" id="apiKey" placeholder="Gemini API 키 (AIza...)"></div>
+<div>
+<button class="primary" id="saveKeyBtn">저장</button>
+<button class="secondary" id="clearKeyBtn">키 삭제</button>
+</div>
+<div class="muted" id="keyStatus" style="margin-top:8px;font-size:13px"></div>
+</div>
+
+<div class="card">
+<h2>① 오늘 이야기하기</h2>
+<div class="chat" id="chat">
+<div class="msg ai">AI: 오늘 하루를 편하게 이야기해 주세요. 잘 정리하려고 하지 않아도 됩니다.</div>
+</div>
+<textarea id="input" placeholder="예: 오늘 오전에는 회의 준비를 했는데 생각보다 시간이 오래 걸렸어..."></textarea>
+<div>
+<button class="primary" id="sendBtn">기록하기</button>
+<button class="secondary" id="voiceBtn">🎙 음성 입력</button>
+<button class="secondary" id="finishBtn">✨ 오늘 기록 정리 (AI)</button>
+<button class="secondary" id="newBtn">새 기록</button>
+</div>
+<div class="muted" id="status" style="margin-top:10px;font-size:13px"></div>
+<div class="error" id="err"></div>
+</div>
+
+<div class="card">
+<h2>② 오늘의 일지 초안</h2>
+<div class="grid">
+<div class="field"><b>사건 / 상황</b><div id="situation">-</div></div>
+<div class="field"><b>감정 / 반응</b><div id="emotion">-</div></div>
+<div class="field"><b>생각 / 해석</b><div id="thought">-</div></div>
+<div class="field"><b>성찰 / 분석</b><div id="reflection">-</div></div>
+<div class="field"><b>향후 계획 / 목표</b><div id="plan">-</div></div>
+<div class="field"><b>세줄일기</b><div id="three">-</div></div>
+<div class="field"><b>일기</b><div id="diary">-</div></div>
+<div class="field"><b>기타 기록</b><div id="other">-</div></div>
+</div>
+</div>
+
+<div class="card">
+<h2>③ 백업</h2>
+<button class="secondary" id="jsonBtn">현재 기록 백업</button>
+<button class="secondary" id="csvBtn">대화 CSV 저장</button>
+</div>
+</div>
+
+<script>
+(function(){
+"use strict";
+var KEY="daily_ai_v2_free";
+var KEYNAME="gemini_api_key";
+var GEMINI_MODEL="gemini-2.5-flash";
+var today=new Date();
+var date=today.getFullYear()+"-"+String(today.getMonth()+1).padStart(2,"0")+"-"+String(today.getDate()).padStart(2,"0");
+var store={};
+try{store=JSON.parse(localStorage.getItem(KEY)||"{}")}catch(e){store={};}
+var current=store[date]||{messages:[],draft:{}};
+
+function $(id){return document.getElementById(id)}
+$("today").textContent=date;
+function save(){store[date]=current;localStorage.setItem(KEY,JSON.stringify(store));$("saved").textContent="저장된 날짜 "+Object.keys(store).length+"일";}
+save();
+
+function showErr(t){$("err").textContent=t;$("err").style.display="block";}
+function clearErr(){$("err").style.display="none";}
+
+// ---- API 키 관리 ----
+function getKey(){return localStorage.getItem(KEYNAME)||"";}
+function refreshKeyStatus(){
+ var k=getKey();
+ $("keyStatus").textContent=k?("키가 저장되어 있습니다 (마지막 4자리: ..."+k.slice(-4)+")"):"저장된 키가 없습니다. 위에 입력 후 저장을 눌러주세요.";
+}
+$("saveKeyBtn").onclick=function(){
+ var v=$("apiKey").value.trim();
+ if(!v){refreshKeyStatus();return;}
+ localStorage.setItem(KEYNAME,v);$("apiKey").value="";refreshKeyStatus();
+};
+$("clearKeyBtn").onclick=function(){localStorage.removeItem(KEYNAME);refreshKeyStatus();};
+refreshKeyStatus();
+
+// ---- 대화 UI ----
+function add(role,text){
+ var d=document.createElement("div");d.className="msg "+(role==="ai"?"ai":"me");
+ d.textContent=(role==="ai"?"AI: ":"나: ")+text;$("chat").appendChild(d);$("chat").scrollTop=$("chat").scrollHeight;
+}
+function question(){
+ var n=current.messages.filter(function(x){return x.role==="me"}).length;
+ if(n===1)return "그때 가장 크게 느꼈던 감정은 무엇이었어요?";
+ if(n===2)return "지금 다시 생각해보면, 그 상황을 어떻게 해석하고 있나요?";
+ if(n===3)return "그 일을 통해 나 자신에 대해 새롭게 알게 된 점이 있나요?";
+ if(n===4)return "비슷한 일이 다시 생긴다면 어떻게 해보고 싶어요?";
+ return "오늘 더 기록하고 싶은 일이 있나요? 없으면 '오늘 기록 정리'를 눌러주세요.";
+}
+$("sendBtn").onclick=function(){
+ var text=$("input").value.trim();
+ if(!text){$("status").textContent="먼저 이야기를 입력해주세요.";return;}
+ current.messages.push({role:"me",text:text,time:new Date().toISOString()});add("me",text);
+ $("input").value="";
+ var q=question();current.messages.push({role:"ai",text:q,time:new Date().toISOString()});add("ai",q);
+ $("status").textContent="기록되었습니다.";save();
+};
+$("input").addEventListener("keydown",function(e){if(e.key==="Enter" && (e.ctrlKey||e.metaKey))$("sendBtn").click();});
+
+// ---- 음성 입력 (브라우저 내장, 무료) ----
+$("voiceBtn").onclick=function(){
+ clearErr();
+ var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SR){showErr("이 브라우저는 음성 입력을 지원하지 않습니다. Chrome 또는 Edge에서 열어주세요.");return;}
+ if(location.protocol!=="https:" && location.hostname!=="localhost"){
+   showErr("음성 입력은 https 주소에서만 동작합니다. 이 페이지를 https로 배포된 주소에서 열어주세요.");return;
+ }
+ var r=new SR();r.lang="ko-KR";r.interimResults=false;r.continuous=false;
+ r.onstart=function(){$("status").textContent="🎙 듣고 있습니다. 말씀해주세요.";};
+ r.onresult=function(e){$("input").value=e.results[0][0].transcript;$("status").textContent="음성 입력이 완료되었습니다. '기록하기'를 눌러주세요.";};
+ r.onerror=function(e){showErr("음성 입력 오류: "+e.error+(e.error==="not-allowed"?" (브라우저 마이크 권한을 허용해주세요)":""));};
+ r.start();
+};
+
+// ---- Gemini 무료 API로 정리 ----
+var journalSchema={
+ type:"OBJECT",
+ properties:{
+  situation:{type:"STRING",description:"오늘의 사건/상황을 한두 문장으로"},
+  emotion:{type:"STRING",description:"감정/반응"},
+  thought:{type:"STRING",description:"생각/해석"},
+  reflection:{type:"STRING",description:"성찰/분석"},
+  plan:{type:"STRING",description:"향후 계획/목표"},
+  three:{type:"STRING",description:"세줄일기: 가장 기억에 남은 일 / 오늘의 생각 / 내일의 초점, 줄바꿈으로 구분"},
+  diary:{type:"STRING",description:"자연스러운 1인칭 서술 일기, 3~6문장"},
+  other:{type:"STRING",description:"학습/육아/꿈/영화 등 별도로 남길 만한 내용이 있으면 작성, 없으면 빈 문자열"}
+ },
+ required:["situation","emotion","thought","reflection","plan","three","diary","other"]
+};
+
+async function summarizeWithGemini(transcript){
+ var key=getKey();
+ if(!key)throw new Error("Gemini API 키가 설정되어 있지 않습니다. 위 '⚙ Gemini API 키 설정'에서 먼저 등록해주세요.");
+ var prompt="당신은 한국어 개인기록 편집자입니다. 아래는 사용자가 오늘 하루를 이야기한 대화 기록입니다. "+
+  "이 내용을 근거로 사실을 지어내지 말고, 불확실한 내용은 완곡하게 표현해서 하루 일지를 정리하세요.\n\n"+
+  "대화 기록:\n"+transcript;
+ var url="https://generativelanguage.googleapis.com/v1beta/models/"+GEMINI_MODEL+":generateContent";
+ var res=await fetch(url,{
+  method:"POST",
+  headers:{"Content-Type":"application/json","x-goog-api-key":key},
+  body:JSON.stringify({
+   contents:[{parts:[{text:prompt}]}],
+   generationConfig:{responseMimeType:"application/json",responseSchema:journalSchema}
+  })
+ });
+ var data=await res.json();
+ if(!res.ok){
+  var msg=(data&&data.error&&data.error.message)||("요청 실패 (HTTP "+res.status+")");
+  throw new Error(msg);
+ }
+ var text=data&&data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0]&&data.candidates[0].content.parts[0].text;
+ if(!text)throw new Error("Gemini 응답을 해석할 수 없습니다.");
+ return JSON.parse(text);
+}
+
+$("finishBtn").onclick=async function(){
+ clearErr();
+ var msgs=current.messages.filter(function(x){return x.role==="me"}).map(function(x){return x.text});
+ if(!msgs.length){$("status").textContent="오늘 이야기를 먼저 입력해주세요.";return;}
+ $("finishBtn").disabled=true;$("status").textContent="AI가 오늘 기록을 정리하는 중...";
+ try{
+  var transcript=current.messages.map(function(m){return (m.role==="me"?"사용자: ":"AI: ")+m.text;}).join("\n");
+  var draft=await summarizeWithGemini(transcript);
+  current.draft=draft;render();save();
+  $("status").textContent="오늘 기록 초안이 생성되었습니다.";
+ }catch(e){
+  showErr("일지 생성 실패: "+(e.message||String(e)));
+  $("status").textContent="";
+ }finally{
+  $("finishBtn").disabled=false;
+ }
+};
+
+function render(){
+ var x=current.draft||{};
+ ["situation","emotion","thought","reflection","plan","three","diary","other"].forEach(function(k){$(k).textContent=x[k]||"-";});
+}
+$("newBtn").onclick=function(){current={messages:[],draft:{}};$("chat").innerHTML='<div class="msg ai">AI: 오늘 하루를 편하게 이야기해 주세요. 잘 정리하려고 하지 않아도 됩니다.</div>';$("input").value="";render();$("status").textContent="새 기록을 시작합니다.";clearErr();save();};
+$("jsonBtn").onclick=function(){var blob=new Blob([JSON.stringify(current,null,2)],{type:"application/json"});var a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="하루기록_"+date+".json";a.click();};
+$("csvBtn").onclick=function(){var rows=[["날짜","역할","내용","시간"]];current.messages.forEach(function(m){rows.push([date,m.role,m.text,m.time]);});var csv="\ufeff"+rows.map(function(r){return r.map(function(v){return '"'+String(v).replace(/"/g,'""')+'"';}).join(",");}).join("\n");var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));a.download="하루기록_"+date+".csv";a.click();};
+render();
+})();
+</script>
+</body>
+</html>

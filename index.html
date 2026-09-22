@@ -55,6 +55,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div>
 <button class="primary" id="sendBtn">기록하기</button>
 <button class="secondary" id="voiceBtn">🎙 음성 입력</button>
+<button class="secondary" id="voiceStopBtn" disabled>⏹ 음성 입력 종료</button>
 <button class="secondary" id="finishBtn">✨ 오늘 기록 정리 (AI)</button>
 <button class="secondary" id="newBtn">새 기록</button>
 </div>
@@ -142,9 +143,9 @@ $("input").addEventListener("keydown",function(e){if(e.key==="Enter" && (e.ctrlK
 
 // ---- 음성 입력 (브라우저 내장, 무료) ----
 var recognizing=false;var recognizer=null;var baseText="";
-$("voiceBtn").onclick=function(){
+function startVoice(){
  clearErr();
- if(recognizing){recognizer.stop();return;}
+ if(recognizing)return;
  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  if(!SR){showErr("이 브라우저는 음성 입력을 지원하지 않습니다. Chrome 또는 Edge에서 열어주세요.");return;}
  if(location.protocol!=="https:" && location.hostname!=="localhost"){
@@ -153,8 +154,8 @@ $("voiceBtn").onclick=function(){
  baseText=$("input").value?($("input").value.trim()+" "):"";
  recognizer=new SR();recognizer.lang="ko-KR";recognizer.interimResults=true;recognizer.continuous=true;
  recognizer.onstart=function(){
-  recognizing=true;$("voiceBtn").textContent="⏹ 그만 말하기 (누르면 종료)";
-  $("status").textContent="🎙 듣고 있습니다. 편하게 이어서 말씀하세요. 잠깐 쉬어도 계속 듣습니다.";
+  recognizing=true;$("voiceBtn").disabled=true;$("voiceStopBtn").disabled=false;
+  $("status").textContent="🎙 듣고 있습니다. 편하게 이어서 말씀하세요. '음성 입력 종료'를 누를 때까지 계속 듣습니다.";
  };
  recognizer.onresult=function(e){
   var finalText="",interim="";
@@ -170,11 +171,14 @@ $("voiceBtn").onclick=function(){
   showErr("음성 입력 오류: "+e.error+(e.error==="not-allowed"?" (브라우저 마이크 권한을 허용해주세요)":""));
  };
  recognizer.onend=function(){
-  recognizing=false;$("voiceBtn").textContent="🎙 음성 입력";
+  recognizing=false;$("voiceBtn").disabled=false;$("voiceStopBtn").disabled=true;
   $("status").textContent="음성 입력이 끝났습니다. 내용을 확인하고 '기록하기'를 눌러주세요.";
  };
  recognizer.start();
-};
+}
+function stopVoice(){if(recognizing&&recognizer)recognizer.stop();}
+$("voiceBtn").onclick=startVoice;
+$("voiceStopBtn").onclick=stopVoice;
 
 // ---- Gemini 무료 API로 정리 ----
 var journalSchema={

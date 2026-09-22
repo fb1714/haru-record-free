@@ -142,7 +142,40 @@ $("sendBtn").onclick=function(){
 $("input").addEventListener("keydown",function(e){if(e.key==="Enter" && (e.ctrlKey||e.metaKey))$("sendBtn").click();});
 
 // ---- 음성 입력 (브라우저 내장, 무료) ----
-var recognizing=false;var recognizer=null;var baseText="";
+var recognizing=false;var recognizer=null;var baseText="";var manualStop=false;
+function makeRecognizer(){
+ var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ var r=new SR();r.lang="ko-KR";r.interimResults=true;r.continuous=true;
+ r.onstart=function(){
+  recognizing=true;$("voiceBtn").disabled=true;$("voiceStopBtn").disabled=false;
+  $("status").textContent="🎙 듣고 있습니다. 편하게 이어서 말씀하세요. '음성 입력 종료'를 누를 때까지 계속 듣습니다.";
+ };
+ r.onresult=function(e){
+  var finalText="",interim="";
+  for(var i=e.resultIndex;i<e.results.length;i++){
+   if(e.results[i].isFinal)finalText+=e.results[i][0].transcript;
+   else interim+=e.results[i][0].transcript;
+  }
+  if(finalText)baseText+=finalText+" ";
+  $("input").value=(baseText+interim).trim();
+ };
+ r.onerror=function(e){
+  if(e.error==="no-speech")return; // 잠깐 조용해도 계속 듣도록 무시, 재시작은 onend에서 처리
+  if(e.error==="not-allowed"||e.error==="audio-capture"||e.error==="service-not-allowed"){
+   manualStop=true; // 이런 오류는 다시 시도해도 소용없으니 재시작하지 않음
+   showErr("음성 입력 오류: "+e.error+(e.error==="not-allowed"?" (브라우저 마이크 권한을 허용해주세요)":""));
+  }
+ };
+ r.onend=function(){
+  if(!manualStop){
+   // 사용자가 종료를 누르지 않았는데 브라우저가 스스로 멈췄다면 자동으로 이어서 듣기
+   try{recognizer=makeRecognizer();recognizer.start();return;}catch(e){/* 재시작 실패 시 아래로 진행 */}
+  }
+  recognizing=false;$("voiceBtn").disabled=false;$("voiceStopBtn").disabled=true;
+  $("status").textContent="음성 입력이 끝났습니다. 내용을 확인하고 '기록하기'를 눌러주세요.";
+ };
+ return r;
+}
 function startVoice(){
  clearErr();
  if(recognizing)return;
@@ -152,31 +185,11 @@ function startVoice(){
    showErr("음성 입력은 https 주소에서만 동작합니다. 이 페이지를 https로 배포된 주소에서 열어주세요.");return;
  }
  baseText=$("input").value?($("input").value.trim()+" "):"";
- recognizer=new SR();recognizer.lang="ko-KR";recognizer.interimResults=true;recognizer.continuous=true;
- recognizer.onstart=function(){
-  recognizing=true;$("voiceBtn").disabled=true;$("voiceStopBtn").disabled=false;
-  $("status").textContent="🎙 듣고 있습니다. 편하게 이어서 말씀하세요. '음성 입력 종료'를 누를 때까지 계속 듣습니다.";
- };
- recognizer.onresult=function(e){
-  var finalText="",interim="";
-  for(var i=e.resultIndex;i<e.results.length;i++){
-   if(e.results[i].isFinal)finalText+=e.results[i][0].transcript;
-   else interim+=e.results[i][0].transcript;
-  }
-  if(finalText)baseText+=finalText+" ";
-  $("input").value=(baseText+interim).trim();
- };
- recognizer.onerror=function(e){
-  if(e.error==="no-speech")return; // 잠깐 조용해도 계속 듣도록 무시
-  showErr("음성 입력 오류: "+e.error+(e.error==="not-allowed"?" (브라우저 마이크 권한을 허용해주세요)":""));
- };
- recognizer.onend=function(){
-  recognizing=false;$("voiceBtn").disabled=false;$("voiceStopBtn").disabled=true;
-  $("status").textContent="음성 입력이 끝났습니다. 내용을 확인하고 '기록하기'를 눌러주세요.";
- };
+ manualStop=false;
+ recognizer=makeRecognizer();
  recognizer.start();
 }
-function stopVoice(){if(recognizing&&recognizer)recognizer.stop();}
+function stopVoice(){manualStop=true;if(recognizing&&recognizer)recognizer.stop();}
 $("voiceBtn").onclick=startVoice;
 $("voiceStopBtn").onclick=stopVoice;
 

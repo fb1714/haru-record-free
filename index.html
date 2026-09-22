@@ -153,14 +153,14 @@ function buildRecognizerOnce(){
   $("status").textContent="🎙 듣고 있습니다. 편하게 이어서 말씀하세요. '음성 입력 종료'를 누를 때까지 계속 듣습니다.";
  };
  r.onresult=function(e){
+  // resultIndex를 신뢰하지 않고, 매번 전체 결과를 처음부터 다시 계산해서 교체 (기기별 중복 버그 방지)
   var finalText="",interim="";
-  for(var i=e.resultIndex;i<e.results.length;i++){
+  for(var i=0;i<e.results.length;i++){
    if(e.results[i].isFinal)finalText+=e.results[i][0].transcript;
    else interim+=e.results[i][0].transcript;
   }
-  if(finalText)sessionFinal+=finalText+" ";
-  // 이전 세션 내용을 이어붙이지 않고, 이번 세션 결과로 교체 (모바일 재시작 시 중복 방지)
-  $("input").value=(fixedPrefix+sessionFinal+interim).trim();
+  sessionFinal=finalText;
+  $("input").value=(fixedPrefix+sessionFinal+" "+interim).trim();
  };
  r.onerror=function(e){
   if(e.error==="no-speech")return; // 잠깐 조용해도 계속 듣도록 무시, 재시작은 onend에서 처리

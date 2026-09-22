@@ -26,7 +26,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div class="wrap">
 
 <div class="card">
-<h1>하루기록 AI <span class="badge">무료 버전 · v4</span></h1>
+<h1>하루기록 AI <span class="badge">무료 버전 · v6</span></h1>
 <div class="muted">말하듯 이야기하면 오늘의 일지를 정리합니다. 음성 인식은 브라우저 내장 기능, 정리는 Google Gemini 무료 API를 사용합니다.</div>
 <div><span class="status" id="today"></span><span class="status" id="saved"></span></div>
 </div>
@@ -56,6 +56,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <button class="primary" id="sendBtn">기록하기</button>
 <button class="secondary" id="voiceBtn">🎙 음성 입력</button>
 <button class="secondary" id="voiceStopBtn" disabled>⏹ 음성 입력 종료</button>
+<button class="secondary" id="retryBtn" style="display:none">🔁 변환 다시 시도</button>
 <button class="secondary" id="finishBtn">✨ 오늘 기록 정리 (AI)</button>
 <button class="secondary" id="newBtn">새 기록</button>
 </div>
@@ -141,59 +142,107 @@ $("sendBtn").onclick=function(){
 };
 $("input").addEventListener("keydown",function(e){if(e.key==="Enter" && (e.ctrlKey||e.metaKey))$("sendBtn").click();});
 
-// ---- 음성 입력 (브라우저 내장, 무료) ----
-var recognizing=false;var recognizer=null;var fixedPrefix="";var sessionFinal="";var manualStop=false;
-function buildRecognizerOnce(){
- if(recognizer)return recognizer;
- var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
- var r=new SR();r.lang="ko-KR";r.interimResults=true;r.continuous=true;
- r.onstart=function(){
-  sessionFinal=""; // 새 세션이 시작될 때마다, 이번 세션이 지금까지 말한 전체를 다시 돌려줄 수 있으므로 초기화
-  recognizing=true;$("voiceBtn").disabled=true;$("voiceStopBtn").disabled=false;
-  $("status").textContent="🎙 듣고 있습니다. 편하게 이어서 말씀하세요. '음성 입력 종료'를 누를 때까지 계속 듣습니다.";
- };
- r.onresult=function(e){
-  // resultIndex를 신뢰하지 않고, 매번 전체 결과를 처음부터 다시 계산해서 교체 (기기별 중복 버그 방지)
-  var finalText="",interim="";
-  for(var i=0;i<e.results.length;i++){
-   if(e.results[i].isFinal)finalText+=e.results[i][0].transcript;
-   else interim+=e.results[i][0].transcript;
-  }
-  sessionFinal=finalText;
-  $("input").value=(fixedPrefix+sessionFinal+" "+interim).trim();
- };
- r.onerror=function(e){
-  if(e.error==="no-speech")return; // 잠깐 조용해도 계속 듣도록 무시, 재시작은 onend에서 처리
-  if(e.error==="not-allowed"||e.error==="audio-capture"||e.error==="service-not-allowed"){
-   manualStop=true; // 이런 오류는 다시 시도해도 소용없으니 재시작하지 않음
-   showErr("음성 입력 오류: "+e.error+(e.error==="not-allowed"?" (브라우저 마이크 권한을 허용해주세요)":""));
-  }
- };
- r.onend=function(){
-  if(!manualStop){
-   // 사용자가 종료를 누르지 않았는데 브라우저가 스스로 멈췄다면, 같은 인스턴스로 이어서 듣기
-   try{r.start();return;}catch(e){/* 재시작 실패 시 아래로 진행 */}
-  }
-  recognizing=false;$("voiceBtn").disabled=false;$("voiceStopBtn").disabled=true;
-  $("status").textContent="음성 입력이 끝났습니다. 내용을 확인하고 '기록하기'를 눌러주세요.";
- };
- recognizer=r;return r;
+// ---- 음성 입력: 녹음기 방식 (한 번 권한 → 종료 버튼까지 계속 녹음 → Gemini가 받아적기) ----
+var mediaRecorder=null,audioChunks=[],micStream=null,timerId=null,startTs=0,wakeLock=null,lastAudioBlob=null;
+function fmtTime(sec){return String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0");}
+async function startVoice(){
+ clearErr();$("retryBtn").style.display="none";
+ if(mediaRecorder&&mediaRecorder.state==="recording")return;
+ if(!getKey()){showErr("녹음을 글로 바꾸려면 Gemini API 키가 필요합니다. 위 '⚙ Gemini API 키 설정'에서 먼저 등록해주세요.");return;}
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder){showErr("이 브라우저는 녹음을 지원하지 않습니다. Chrome에서 열어주세요.");return;}
+ try{
+  micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+ }catch(e){showErr("마이크를 사용할 수 없습니다: "+(e.message||e.name)+"\n브라우저 마이크 권한을 '허용'으로 바꿔주세요.");return;}
+ audioChunks=[];
+ mediaRecorder=new MediaRecorder(micStream);
+ mediaRecorder.ondataavailable=function(e){if(e.data&&e.data.size)audioChunks.push(e.data);};
+ mediaRecorder.onstop=handleRecordingStop;
+ mediaRecorder.start(1000);
+ startTs=Date.now();
+ $("voiceBtn").disabled=true;$("voiceStopBtn").disabled=false;
+ var tick=function(){$("status").textContent="🔴 녹음 중 "+fmtTime(Math.floor((Date.now()-startTs)/1000))+" — 다 말씀하시면 '음성 입력 종료'를 눌러주세요.";};
+ tick();timerId=setInterval(tick,1000);
+ try{if(navigator.wakeLock)wakeLock=await navigator.wakeLock.request("screen");}catch(e){/* 화면 꺼짐 방지 실패는 무시 */}
 }
-function startVoice(){
- clearErr();
- if(recognizing)return;
- var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
- if(!SR){showErr("이 브라우저는 음성 입력을 지원하지 않습니다. Chrome 또는 Edge에서 열어주세요.");return;}
- if(location.protocol!=="https:" && location.hostname!=="localhost"){
-   showErr("음성 입력은 https 주소에서만 동작합니다. 이 페이지를 https로 배포된 주소에서 열어주세요.");return;
+function stopVoice(){if(mediaRecorder&&mediaRecorder.state!=="inactive")mediaRecorder.stop();}
+async function handleRecordingStop(){
+ clearInterval(timerId);
+ if(micStream){micStream.getTracks().forEach(function(t){t.stop();});micStream=null;}
+ if(wakeLock){try{wakeLock.release();}catch(e){}wakeLock=null;}
+ $("voiceStopBtn").disabled=true;
+ lastAudioBlob=new Blob(audioChunks,{type:(mediaRecorder&&mediaRecorder.mimeType)||"audio/webm"});
+ await transcribeLastRecording();
+}
+async function transcribeLastRecording(){
+ if(!lastAudioBlob)return;
+ $("voiceBtn").disabled=true;$("retryBtn").style.display="none";clearErr();
+ $("status").textContent="🔄 녹음을 글로 바꾸는 중...";
+ try{
+  var parts=await blobToWavChunks(lastAudioBlob,16000,180);
+  var texts=[];
+  for(var i=0;i<parts.length;i++){
+   $("status").textContent="🔄 녹음을 글로 바꾸는 중... ("+(i+1)+"/"+parts.length+")";
+   texts.push(await transcribeWithGemini(parts[i]));
+  }
+  var t=texts.join(" ").replace(/\s+/g," ").trim();
+  if(!t)throw new Error("인식된 말이 없습니다. 다시 녹음해주세요.");
+  var prev=$("input").value.trim();
+  $("input").value=(prev?prev+" ":"")+t;
+  lastAudioBlob=null;
+  $("status").textContent="✅ 변환 완료. 내용을 확인·수정한 뒤 '기록하기'를 눌러주세요.";
+ }catch(e){
+  showErr("녹음 변환 실패: "+(e.message||String(e))+"\n녹음은 보관되어 있으니 '🔁 변환 다시 시도'를 눌러주세요.");
+  $("retryBtn").style.display="inline-block";$("status").textContent="";
+ }finally{
+  $("voiceBtn").disabled=false;
  }
- fixedPrefix=$("input").value?($("input").value.trim()+" "):"";
- manualStop=false;
- buildRecognizerOnce().start();
 }
-function stopVoice(){manualStop=true;if(recognizing&&recognizer)recognizer.stop();}
+async function blobToWavChunks(blob,rate,chunkSec){
+ var ab=await blob.arrayBuffer();
+ var AC=window.AudioContext||window.webkitAudioContext;var ac=new AC();
+ var decoded=await ac.decodeAudioData(ab);
+ try{ac.close();}catch(e){}
+ var len=Math.max(1,Math.ceil(decoded.duration*rate));
+ var off=new OfflineAudioContext(1,len,rate);
+ var src=off.createBufferSource();src.buffer=decoded;src.connect(off.destination);src.start();
+ var rendered=await off.startRendering();
+ var data=rendered.getChannelData(0);
+ var step=rate*chunkSec,out=[];
+ for(var s=0;s<data.length;s+=step)out.push(encodeWav(data.subarray(s,Math.min(s+step,data.length)),rate));
+ return out;
+}
+function encodeWav(samples,rate){
+ var buf=new ArrayBuffer(44+samples.length*2),v=new DataView(buf);
+ function ws(o,str){for(var i=0;i<str.length;i++)v.setUint8(o+i,str.charCodeAt(i));}
+ ws(0,"RIFF");v.setUint32(4,36+samples.length*2,true);ws(8,"WAVE");ws(12,"fmt ");
+ v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);
+ v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,"data");v.setUint32(40,samples.length*2,true);
+ for(var i=0,o=44;i<samples.length;i++,o+=2){var x=Math.max(-1,Math.min(1,samples[i]));v.setInt16(o,x<0?x*0x8000:x*0x7FFF,true);}
+ return new Blob([buf],{type:"audio/wav"});
+}
+function blobToBase64(blob){
+ return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(String(r.result).split(",")[1]);};r.onerror=function(){rej(new Error("오디오 읽기 실패"));};r.readAsDataURL(blob);});
+}
+async function transcribeWithGemini(wavBlob){
+ var key=getKey();
+ var b64=await blobToBase64(wavBlob);
+ var url="https://generativelanguage.googleapis.com/v1beta/models/"+GEMINI_MODEL+":generateContent";
+ var res=await fetch(url,{
+  method:"POST",
+  headers:{"Content-Type":"application/json","x-goog-api-key":key},
+  body:JSON.stringify({contents:[{parts:[
+   {inlineData:{mimeType:"audio/wav",data:b64}},
+   {text:"이 녹음은 한 사람이 자신의 하루를 한국어로 이야기한 것입니다. 들리는 말을 그대로 한국어 텍스트로 받아적어 주세요. 말하지 않은 내용을 추가하거나 요약하지 말고, 받아적은 텍스트만 출력하세요. 말소리가 없으면 빈 문자열만 출력하세요."}
+  ]}]})
+ });
+ var data=await res.json();
+ if(!res.ok)throw new Error((data&&data.error&&data.error.message)||("요청 실패 (HTTP "+res.status+")"));
+ var p=data&&data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts;
+ return p?p.map(function(x){return x.text||"";}).join("").trim():"";
+}
 $("voiceBtn").onclick=startVoice;
 $("voiceStopBtn").onclick=stopVoice;
+$("retryBtn").onclick=transcribeLastRecording;
 
 // ---- Gemini 무료 API로 정리 ----
 var journalSchema={

@@ -142,12 +142,13 @@ $("sendBtn").onclick=function(){
 $("input").addEventListener("keydown",function(e){if(e.key==="Enter" && (e.ctrlKey||e.metaKey))$("sendBtn").click();});
 
 // ---- 음성 입력 (브라우저 내장, 무료) ----
-var recognizing=false;var recognizer=null;var baseText="";var manualStop=false;
+var recognizing=false;var recognizer=null;var fixedPrefix="";var sessionFinal="";var manualStop=false;
 function buildRecognizerOnce(){
  if(recognizer)return recognizer;
  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  var r=new SR();r.lang="ko-KR";r.interimResults=true;r.continuous=true;
  r.onstart=function(){
+  sessionFinal=""; // 새 세션이 시작될 때마다, 이번 세션이 지금까지 말한 전체를 다시 돌려줄 수 있으므로 초기화
   recognizing=true;$("voiceBtn").disabled=true;$("voiceStopBtn").disabled=false;
   $("status").textContent="🎙 듣고 있습니다. 편하게 이어서 말씀하세요. '음성 입력 종료'를 누를 때까지 계속 듣습니다.";
  };
@@ -157,8 +158,9 @@ function buildRecognizerOnce(){
    if(e.results[i].isFinal)finalText+=e.results[i][0].transcript;
    else interim+=e.results[i][0].transcript;
   }
-  if(finalText)baseText+=finalText+" ";
-  $("input").value=(baseText+interim).trim();
+  if(finalText)sessionFinal+=finalText+" ";
+  // 이전 세션 내용을 이어붙이지 않고, 이번 세션 결과로 교체 (모바일 재시작 시 중복 방지)
+  $("input").value=(fixedPrefix+sessionFinal+interim).trim();
  };
  r.onerror=function(e){
   if(e.error==="no-speech")return; // 잠깐 조용해도 계속 듣도록 무시, 재시작은 onend에서 처리
@@ -185,7 +187,7 @@ function startVoice(){
  if(location.protocol!=="https:" && location.hostname!=="localhost"){
    showErr("음성 입력은 https 주소에서만 동작합니다. 이 페이지를 https로 배포된 주소에서 열어주세요.");return;
  }
- baseText=$("input").value?($("input").value.trim()+" "):"";
+ fixedPrefix=$("input").value?($("input").value.trim()+" "):"";
  manualStop=false;
  buildRecognizerOnce().start();
 }

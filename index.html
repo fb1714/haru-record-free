@@ -141,18 +141,39 @@ $("sendBtn").onclick=function(){
 $("input").addEventListener("keydown",function(e){if(e.key==="Enter" && (e.ctrlKey||e.metaKey))$("sendBtn").click();});
 
 // ---- 음성 입력 (브라우저 내장, 무료) ----
+var recognizing=false;var recognizer=null;var baseText="";
 $("voiceBtn").onclick=function(){
  clearErr();
+ if(recognizing){recognizer.stop();return;}
  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  if(!SR){showErr("이 브라우저는 음성 입력을 지원하지 않습니다. Chrome 또는 Edge에서 열어주세요.");return;}
  if(location.protocol!=="https:" && location.hostname!=="localhost"){
    showErr("음성 입력은 https 주소에서만 동작합니다. 이 페이지를 https로 배포된 주소에서 열어주세요.");return;
  }
- var r=new SR();r.lang="ko-KR";r.interimResults=false;r.continuous=false;
- r.onstart=function(){$("status").textContent="🎙 듣고 있습니다. 말씀해주세요.";};
- r.onresult=function(e){$("input").value=e.results[0][0].transcript;$("status").textContent="음성 입력이 완료되었습니다. '기록하기'를 눌러주세요.";};
- r.onerror=function(e){showErr("음성 입력 오류: "+e.error+(e.error==="not-allowed"?" (브라우저 마이크 권한을 허용해주세요)":""));};
- r.start();
+ baseText=$("input").value?($("input").value.trim()+" "):"";
+ recognizer=new SR();recognizer.lang="ko-KR";recognizer.interimResults=true;recognizer.continuous=true;
+ recognizer.onstart=function(){
+  recognizing=true;$("voiceBtn").textContent="⏹ 그만 말하기 (누르면 종료)";
+  $("status").textContent="🎙 듣고 있습니다. 편하게 이어서 말씀하세요. 잠깐 쉬어도 계속 듣습니다.";
+ };
+ recognizer.onresult=function(e){
+  var finalText="",interim="";
+  for(var i=e.resultIndex;i<e.results.length;i++){
+   if(e.results[i].isFinal)finalText+=e.results[i][0].transcript;
+   else interim+=e.results[i][0].transcript;
+  }
+  if(finalText)baseText+=finalText+" ";
+  $("input").value=(baseText+interim).trim();
+ };
+ recognizer.onerror=function(e){
+  if(e.error==="no-speech")return; // 잠깐 조용해도 계속 듣도록 무시
+  showErr("음성 입력 오류: "+e.error+(e.error==="not-allowed"?" (브라우저 마이크 권한을 허용해주세요)":""));
+ };
+ recognizer.onend=function(){
+  recognizing=false;$("voiceBtn").textContent="🎙 음성 입력";
+  $("status").textContent="음성 입력이 끝났습니다. 내용을 확인하고 '기록하기'를 눌러주세요.";
+ };
+ recognizer.start();
 };
 
 // ---- Gemini 무료 API로 정리 ----
